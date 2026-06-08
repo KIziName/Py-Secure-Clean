@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
 # ----------------------------------------------------------------------
-# Настройки
+# Settings
 # ----------------------------------------------------------------------
 
 def supports_color():
@@ -24,25 +24,25 @@ HIGH_ENTROPY_MIN_LEN = 20
 HIGH_ENTROPY_RATIO = 0.45
 
 RULES = {
-    ("eval", None): ("УЯЗВИМОСТЬ", "Опасный вызов eval()", "Выполняет произвольный код", "Используйте ast.literal_eval()"),
-    ("exec", None): ("УЯЗВИМОСТЬ", "Опасный вызов exec()", "Выполняет динамический код", "Используйте ast.literal_eval()"),
-    ("os", "system"): ("УЯЗВИМОСТЬ", "os.system()", "Уязвимо к инъекциям", "Замените на subprocess.run()"),
-    ("os", "popen"): ("УЯЗВИМОСТЬ", "os.popen()", "Уязвимо к инъекциям", "Замените на subprocess.run()"),
-    ("yaml", "load"): ("УЯЗВИМОСТЬ", "Небезопасная загрузка YAML", "Может выполнить код", "Используйте yaml.safe_load()"),
-    ("hashlib", "md5"): ("УЯЗВИМОСТЬ", "Слабый алгоритм md5()", "Небезопасно для паролей", "Используйте sha256"),
-    ("hashlib", "sha1"): ("УЯЗВИМОСТЬ", "Слабый алгоритм sha1()", "Небезопасно для паролей", "Используйте sha256"),
-    ("pickle", "load"): ("УЯЗВИМОСТЬ", "pickle.load()", "Выполняет вредоносный код", "Используйте JSON"),
-    ("pickle", "loads"): ("УЯЗВИМОСТЬ", "pickle.loads()", "Выполняет вредоносный код", "Используйте JSON"),
-    ("os", "chmod"): ("УЯЗВИМОСТЬ", "Опасные права chmod", "Слишком широкие права", "Ограничьте 600 или 700"),
-    ("urllib.request", "urlretrieve"): ("УЯЗВИМОСТЬ", "urlretrieve()", "Path traversal", "Используйте requests.get()"),
-    ("webbrowser", "open"): ("УЯЗВИМОСТЬ", "webbrowser.open() с динамическим URL", "Может открыть локальные файлы", "Валидируйте URL"),
-    ("tempfile", "mktemp"): ("УЯЗВИМОСТЬ", "tempfile.mktemp()", "Race condition", "Используйте mkstemp()"),
-    ("subprocess", "getoutput"): ("УЯЗВИМОСТЬ", "getoutput() использует shell", "Уязвимо к инъекциям", "Используйте run()"),
-    ("subprocess", "getstatusoutput"): ("УЯЗВИМОСТЬ", "getstatusoutput() использует shell", "Уязвимо к инъекциям", "Используйте run()"),
+    ("eval", None): ("VULNERABILITY", "Dangerous eval() call", "Executes arbitrary code", "Use ast.literal_eval()"),
+    ("exec", None): ("VULNERABILITY", "Dangerous exec() call", "Executes dynamic code", "Use ast.literal_eval()"),
+    ("os", "system"): ("VULNERABILITY", "os.system()", "Vulnerable to command injection", "Use subprocess.run()"),
+    ("os", "popen"): ("VULNERABILITY", "os.popen()", "Vulnerable to command injection", "Use subprocess.run()"),
+    ("yaml", "load"): ("VULNERABILITY", "Unsafe YAML load", "May execute arbitrary code", "Use yaml.safe_load()"),
+    ("hashlib", "md5"): ("VULNERABILITY", "Weak hashing algorithm md5()", "Unsafe for passwords", "Use sha256"),
+    ("hashlib", "sha1"): ("VULNERABILITY", "Weak hashing algorithm sha1()", "Unsafe for passwords", "Use sha256"),
+    ("pickle", "load"): ("VULNERABILITY", "pickle.load()", "Executes malicious code", "Use JSON instead"),
+    ("pickle", "loads"): ("VULNERABILITY", "pickle.loads()", "Executes malicious code", "Use JSON instead"),
+    ("os", "chmod"): ("VULNERABILITY", "Dangerous chmod", "Overly permissive rights", "Limit to 600 or 700"),
+    ("urllib.request", "urlretrieve"): ("VULNERABILITY", "urlretrieve()", "Path traversal risk", "Use requests.get()"),
+    ("webbrowser", "open"): ("VULNERABILITY", "webbrowser.open() with dynamic URL", "May open local files", "Validate URL (http://, https://)"),
+    ("tempfile", "mktemp"): ("VULNERABILITY", "tempfile.mktemp()", "Race condition", "Use mkstemp()"),
+    ("subprocess", "getoutput"): ("VULNERABILITY", "getoutput() uses shell", "Command injection", "Use run() with capture_output=True"),
+    ("subprocess", "getstatusoutput"): ("VULNERABILITY", "getstatusoutput() uses shell", "Command injection", "Use run() with capture_output=True"),
 }
 
 # ----------------------------------------------------------------------
-# Анализатор
+# Analyzer
 # ----------------------------------------------------------------------
 
 class CodeAnalyzer(ast.NodeVisitor):
@@ -53,7 +53,7 @@ class CodeAnalyzer(ast.NodeVisitor):
         self.imports = {}
         self.fixes = {}
 
-    # ---- Вспомогательные методы ----
+    # ---- Helper methods ----
     def _get_code(self, node):
         try:
             return ast.unparse(node)
@@ -70,7 +70,7 @@ class CodeAnalyzer(ast.NodeVisitor):
                     return " ".join(l.strip() for l in lines)
         except:
             pass
-        return "<код>"
+        return "<code>"
 
     def _is_high_entropy(self, text):
         if len(text) < HIGH_ENTROPY_MIN_LEN or " " in text:
@@ -103,14 +103,14 @@ class CodeAnalyzer(ast.NodeVisitor):
         })
 
     def _print_issues(self):
-        for issue in sorted([i for i in self.issues if i["level"] == "УЯЗВИМОСТЬ"], key=lambda x: x["line"]):
+        for issue in sorted([i for i in self.issues if i["level"] == "VULNERABILITY"], key=lambda x: x["line"]):
             print(f"\n{COLORS['RED']}[{issue['level']}] {self.file_name}:{issue['line']} -> {issue['title']}{COLORS['RESET']}")
-            print(f"  {COLORS['WHITE']}Код:{COLORS['RESET']} {issue['code']}")
-            print(f"  {COLORS['WHITE']}Почему:{COLORS['RESET']} {issue['reason']}")
-            print(f"  {COLORS['WHITE']}Исправить:{COLORS['RESET']} {issue['fix']}")
+            print(f"  {COLORS['WHITE']}Code:{COLORS['RESET']} {issue['code']}")
+            print(f"  {COLORS['WHITE']}Why:{COLORS['RESET']} {issue['reason']}")
+            print(f"  {COLORS['WHITE']}Fix:{COLORS['RESET']} {issue['fix']}")
             print(f"{COLORS['CYAN']}{'-'*50}{COLORS['RESET']}")
 
-    # ---- Обход AST ----
+    # ---- AST visitors ----
     def visit_Import(self, node):
         for n in node.names:
             self.imports[n.asname or n.name] = (n.name, None, n.name)
@@ -128,15 +128,15 @@ class CodeAnalyzer(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Assert(self, node):
-        self._add_issue("УЯЗВИМОСТЬ", "assert для безопасности", node.lineno,
-                        self._get_code(node), "assert отключается флагом -O", "Замените на if и raise")
+        self._add_issue("VULNERABILITY", "assert used for security", node.lineno,
+                        self._get_code(node), "assert is disabled with -O flag", "Replace with if and raise")
         self.generic_visit(node)
 
     def visit_FunctionDef(self, node):
         for d in node.args.defaults:
             if isinstance(d, (ast.List, ast.Dict)):
-                self._add_issue("МУСОР И СТИЛЬ", "Мутабельный аргумент по умолчанию", node.lineno,
-                                f"def {node.name}(...)", "Объект создаётся один раз", "Используйте default=None")
+                self._add_issue("CODE_SMELL", "Mutable default argument", node.lineno,
+                                f"def {node.name}(...)", "Object created once, changes accumulate", "Use default=None")
         self.generic_visit(node)
 
     def visit_Assign(self, node):
@@ -149,29 +149,29 @@ class CodeAnalyzer(ast.NodeVisitor):
             if not isinstance(target, ast.Name):
                 continue
             name = target.id.lower()
-            # Секреты
+            # Secrets
             if any(k in name for k in ("password","token","secret","api_key","passwd","pwd")) and isinstance(val, str):
                 if any(dp in val_str for dp in ("admin","root","12345","qwerty")):
-                    self._add_issue("УЯЗВИМОСТЬ", "Дефолтные учетные данные", node.lineno,
-                                    self._get_code(node), "Стандартный пароль", "Смените и вынесите в .env")
+                    self._add_issue("VULNERABILITY", "Default credentials in code", node.lineno,
+                                    self._get_code(node), "Default password left", "Change and use .env")
                 else:
-                    self._add_issue("УЯЗВИМОСТЬ", "Пароль или секрет в коде", node.lineno,
-                                    f"{target.id} = '...'", "Чувствительные данные", "Перенесите в .env")
+                    self._add_issue("VULNERABILITY", "Password or secret in code", node.lineno,
+                                    f"{target.id} = '...'", "Sensitive data exposed", "Move to .env")
                     if self._is_high_entropy(val) and not name.startswith("_"):
-                        self._add_issue("УЯЗВИМОСТЬ", "Скрытый ключ/токен", node.lineno,
-                                        "[ВЫСОКАЯ ЭНТРОПИЯ]", "Похоже на API-ключ", "Вынесите в .env")
-            # URL
+                        self._add_issue("VULNERABILITY", "Hidden hardcoded key/token", node.lineno,
+                                        "[HIGH ENTROPY]", "Looks like API key or hash", "Move to .env")
+            # URLs
             if any(p in val_str for p in ("http://","redis://","amqp://","mongodb://","postgres://")) and isinstance(val, str):
                 if "://" in val_str and "@" in val_str and val_str.find("@") > val_str.find("://") and not any(l in val_str for l in ("localhost","127.0.0.1")):
-                    self._add_issue("УЯЗВИМОСТЬ", "Учетные данные внутри URL", node.lineno,
-                                    self._get_code(node), "Логин и пароль в URL", "Используйте переменные окружения")
+                    self._add_issue("VULNERABILITY", "Credentials inside URL", node.lineno,
+                                    self._get_code(node), "Username/password in URL", "Use environment variables")
                 elif not any(l in val_str for l in ("localhost","127.0.0.1")):
-                    self._add_issue("МУСОР И СТИЛЬ", "Захардкоженный URL", node.lineno,
-                                    self._get_code(node), "Адрес внешнего сервиса в коде", "Вынесите в .env")
+                    self._add_issue("CODE_SMELL", "Hardcoded URL/Protocol", node.lineno,
+                                    self._get_code(node), "External service address hardcoded", "Move to .env")
             # DEBUG
             if name == "debug" and val is True:
-                self._add_issue("УЯЗВИМОСТЬ", "DEBUG = True в продакшене", node.lineno,
-                                self._get_code(node), "Режим отладки опасен", "Установите DEBUG = False")
+                self._add_issue("VULNERABILITY", "DEBUG = True in production", node.lineno,
+                                self._get_code(node), "Debug mode allows arbitrary code execution", "Set DEBUG = False")
         self.generic_visit(node)
 
     def visit_ExceptHandler(self, node):
@@ -179,9 +179,9 @@ class CodeAnalyzer(ast.NodeVisitor):
             act = node.body[0]
             if act.lineno and (isinstance(act, ast.Pass) or (isinstance(act, ast.Expr) and isinstance(act.value, ast.Constant))):
                 if not self._already_fixed(act.lineno, "except"):
-                    self._add_issue("МУСОР И СТИЛЬ", "Пустой except", node.lineno,
-                                    "except: pass", "Ошибки игнорируются", "Автозаглушка")
-                    self.fixes[act.lineno] = ("EXCEPT", "pass  # Auto-fixed")
+                    self._add_issue("CODE_SMELL", "Empty except block", node.lineno,
+                                    "except: pass", "Errors silently ignored", "Auto-fix added")
+                    self.fixes[act.lineno] = ("EXCEPT", "pass  # Auto-fixed: suppressed exception placeholder")
         self.generic_visit(node)
 
     def _resolve_chain(self, node, depth=0):
@@ -207,7 +207,7 @@ class CodeAnalyzer(ast.NodeVisitor):
         return False
 
     def _safe_open_arg(self, node):
-        # Безопасные вызовы
+        # Safe function calls
         if isinstance(node, ast.Call):
             f = node.func
             if isinstance(f, ast.Attribute) and f.attr == 'join':
@@ -228,7 +228,7 @@ class CodeAnalyzer(ast.NodeVisitor):
                 return True
             if isinstance(f, ast.Attribute) and (f.attr.startswith('safe_') or f.attr.startswith('validate_')):
                 return True
-        # Переменные с понятными именами
+        # Variables with meaningful names
         if isinstance(node, ast.Name):
             if any(s in node.id.lower() for s in ('path','file','filename','dir','folder','name')):
                 return True
@@ -245,14 +245,14 @@ class CodeAnalyzer(ast.NodeVisitor):
                     if isinstance(k, ast.Constant) and isinstance(k.value, str):
                         key = k.value.lower()
                         if key == "verify" and isinstance(v, ast.Constant) and v.value is False:
-                            self._add_issue("УЯЗВИМОСТЬ", "verify=False через **kwargs", node.lineno,
-                                            code, "Отключена проверка SSL", "Удалите verify=False")
+                            self._add_issue("VULNERABILITY", "SSL verification disabled via **kwargs", node.lineno,
+                                            code, "Disables certificate checks", "Remove verify=False")
                         elif key == "shell" and isinstance(v, ast.Constant) and v.value is True:
-                            self._add_issue("УЯЗВИМОСТЬ", "shell=True через **kwargs", node.lineno,
-                                            code, "Выполнение через shell", "Установите shell=False")
+                            self._add_issue("VULNERABILITY", "shell=True via **kwargs", node.lineno,
+                                            code, "Command injection risk", "Set shell=False")
                         elif key == "host" and isinstance(v, ast.Constant) and v.value == "0.0.0.0":
-                            self._add_issue("УЯЗВИМОСТЬ", "host='0.0.0.0' через **kwargs", node.lineno,
-                                            code, "Сервер доступен всем", "Используйте '127.0.0.1'")
+                            self._add_issue("VULNERABILITY", "host='0.0.0.0' via **kwargs", node.lineno,
+                                            code, "Server exposed to whole world", "Use '127.0.0.1'")
 
     def visit_Call(self, node):
         if not node.lineno:
@@ -289,46 +289,46 @@ class CodeAnalyzer(ast.NodeVisitor):
                         pass
                     else:
                         lvl, ttl, rsn, fx = RULES[key]
-                        if lvl != "МУСОР И СТИЛЬ" or not self._already_fixed(node.lineno, "comment"):
+                        if lvl != "CODE_SMELL" or not self._already_fixed(node.lineno, "comment"):
                             self._add_issue(lvl, ttl, node.lineno, code, rsn, fx)
                             trig = True
 
             if "xml" in mod_low and "defusedxml" not in mod_low:
-                self._add_issue("УЯЗВИМОСТЬ", "Небезопасный парсер XML", node.lineno,
-                                code, "Уязвим к XXE", "Используйте defusedxml")
+                self._add_issue("VULNERABILITY", "Unsafe XML parser", node.lineno,
+                                code, "Vulnerable to XXE attacks", "Use defusedxml")
 
             if mod == "subprocess" and any(k.arg == "shell" and isinstance(k.value, ast.Constant) and k.value.value is True for k in node.keywords):
-                self._add_issue("УЯЗВИМОСТЬ", f"subprocess.{func}(shell=True)", node.lineno,
-                                code, "Инъекция команд", "Установите shell=False")
+                self._add_issue("VULNERABILITY", f"subprocess.{func}(shell=True)", node.lineno,
+                                code, "Command injection risk", "Set shell=False")
 
             if (mod == "open" or (func == "open" and not mod)) and node.args:
                 arg = node.args[0]
                 if not isinstance(arg, ast.Constant) and not self._safe_open_arg(arg):
-                    self._add_issue("МУСОР И СТИЛЬ", "Потенциальный path traversal", node.lineno,
-                                    code, "Динамический путь в open()", "Используйте pathlib.Path()")
+                    self._add_issue("CODE_SMELL", "Potential path traversal in open()", node.lineno,
+                                    code, "Dynamic path passed to open()", "Use pathlib.Path()")
 
             if base and not chain:
                 if base == "print" and not self._already_fixed(node.lineno, "comment"):
-                    self._add_issue("МУСОР И СТИЛЬ", "Забытый print", node.lineno, code, "Засоряет вывод", "Автокомментарий")
+                    self._add_issue("CODE_SMELL", "Forgotten print()", node.lineno, code, "Clutters output", "Auto-commented")
                     self.fixes[node.lineno] = ("PRINT", "COMMENT_LINE")
                 elif base == "breakpoint" and not self._already_fixed(node.lineno, "comment"):
-                    self._add_issue("МУСОР И СТИЛЬ", "Забытый breakpoint", node.lineno, code, "Останавливает скрипт", "Автоудаление")
+                    self._add_issue("CODE_SMELL", "Forgotten breakpoint()", node.lineno, code, "Stops script", "Auto-deleted")
                     self.fixes[node.lineno] = ("BREAKPOINT", "DELETE_LINE")
 
             if any(k.arg == "verify" and isinstance(k.value, ast.Constant) and k.value.value is False for k in node.keywords):
-                self._add_issue("УЯЗВИМОСТЬ", "verify=False", node.lineno, code, "MitM-атаки", "Удалите verify=False")
+                self._add_issue("VULNERABILITY", "SSL verification disabled", node.lineno, code, "Man-in-the-middle attacks", "Remove verify=False")
 
             if any(k.arg == "host" and isinstance(k.value, ast.Constant) and k.value.value == "0.0.0.0" for k in node.keywords):
-                self._add_issue("УЯЗВИМОСТЬ", "Сервер слушает 0.0.0.0", node.lineno, code, "Доступен всем", "Используйте '127.0.0.1'")
+                self._add_issue("VULNERABILITY", "Server binds to 0.0.0.0", node.lineno, code, "Exposed to entire network", "Use '127.0.0.1'")
 
             if not trig and func_low and any(dk in func_low for dk in ("run","exec","system","cmd","shell","spawn","popen")):
                 if mod_low not in ("json","sys","math","time") and node.args and not isinstance(node.args[0], ast.Constant):
-                    self._add_issue("УЯЗВИМОСТЬ", "Динамический вызов команды", node.lineno,
-                                    code, f"В {func} передан динамический аргумент", "Используйте безопасные API")
+                    self._add_issue("VULNERABILITY", "Suspicious dynamic command call", node.lineno,
+                                    code, f"Dynamic argument passed to {func}", "Use safe APIs")
 
             if func_low in ("load","loads") and any(bm in mod_low for bm in ("pickle","marshal","shelve","yaml")):
-                self._add_issue("УЯЗВИМОСТЬ", f"Опасная десериализация .{func}", node.lineno,
-                                code, "Небезопасный парсер", "Проверьте источник данных")
+                self._add_issue("VULNERABILITY", f"Potentially unsafe deserialization .{func}", node.lineno,
+                                code, "Unsafe parser", "Verify data source")
 
             self._check_star_kwargs(node)
 
@@ -349,13 +349,13 @@ class CodeAnalyzer(ast.NodeVisitor):
         try:
             txt = self._get_code(node)
             if txt and SQL_PATTERN.search(txt.lower()) and ('+' in txt or '{' in txt):
-                self._add_issue("УЯЗВИМОСТЬ", "Потенциальная SQL-инъекция", node.lineno,
-                                txt, "Динамический SQL", "Используйте параметры")
+                self._add_issue("VULNERABILITY", "Potential SQL injection", node.lineno,
+                                txt, "Dynamic SQL via f-string or concatenation", "Use parameters")
         except:
             pass
 
 # ----------------------------------------------------------------------
-# Автофиксы
+# Auto-fixes application
 # ----------------------------------------------------------------------
 
 def apply_fixes(file_path, fixes, lines):
@@ -369,13 +369,13 @@ def apply_fixes(file_path, fixes, lines):
             ind = len(cl) - len(cl.lstrip())
             if act == "COMMENT_LINE":
                 new_lines.append(cl[:ind] + "# " + cl[ind:] + end)
-                logs.append((typ, f"Строка {idx}: закомментирован print -> [{cl.strip()}]"))
+                logs.append((typ, f"Line {idx}: print commented -> [{cl.strip()}]"))
             elif act == "DELETE_LINE":
-                logs.append((typ, f"Строка {idx}: удалён breakpoint -> [{cl.strip()}]"))
+                logs.append((typ, f"Line {idx}: breakpoint removed -> [{cl.strip()}]"))
                 continue
             else:
                 new_lines.append(cl[:ind] + act + end)
-                logs.append((typ, f"Строка {idx}: защищён пустой except -> [{cl.strip()}]"))
+                logs.append((typ, f"Line {idx}: empty except protected -> [{cl.strip()}]"))
         else:
             new_lines.append(line)
     with open(file_path, "w", encoding="utf-8") as f:
@@ -383,12 +383,12 @@ def apply_fixes(file_path, fixes, lines):
     return logs
 
 # ----------------------------------------------------------------------
-# Главная функция
+# Main function
 # ----------------------------------------------------------------------
 
 def main():
     start = time.time()
-    print(f"{COLORS['CYAN']}==================================================\n         АНАЛИЗАТОР БЕЗОПАСНОСТИ (v1.0)\n=================================================={COLORS['RESET']}\n")
+    print(f"{COLORS['CYAN']}==================================================\n         PYTHON SECURITY ANALYZER (v1.0)\n=================================================={COLORS['RESET']}\n")
 
     targets = []
     path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path.cwd()
@@ -402,10 +402,10 @@ def main():
                     targets.append(Path(root) / f)
 
     if not targets:
-        print(f"{COLORS['YELLOW']}Python-файлы не найдены.{COLORS['RESET']}")
+        print(f"{COLORS['YELLOW']}No Python files found.{COLORS['RESET']}")
         return
 
-    total = 0
+    total_vuln = 0
     stats = {"PRINT":0, "BREAKPOINT":0, "EXCEPT":0}
     all_logs = []
 
@@ -423,29 +423,29 @@ def main():
 
             if analyzer.fixes:
                 applied = apply_fixes(fpath, analyzer.fixes, lines)
-                print(f"\n{COLORS['GREEN']}[ОЧИЩЕНО] {name}: {len(applied)} строк{COLORS['RESET']}")
+                print(f"\n{COLORS['GREEN']}[CLEANED] {name}: {len(applied)} lines cleaned{COLORS['RESET']}")
                 for typ, msg in applied:
                     print(f"  {COLORS['YELLOW']}->{COLORS['RESET']} {msg}")
                     stats[typ] += 1
                     all_logs.append(msg)
 
             analyzer._print_issues()
-            total += len([i for i in analyzer.issues if i["level"] == "УЯЗВИМОСТЬ"])
+            total_vuln += len([i for i in analyzer.issues if i["level"] == "VULNERABILITY"])
 
         except Exception as e:
-            print(f"\n{COLORS['RED']}[ОШИБКА] {fpath.name}: {e}{COLORS['RESET']}")
+            print(f"\n{COLORS['RED']}[ERROR] {fpath.name}: {e}{COLORS['RESET']}")
 
-    print(f"\n{COLORS['CYAN']}{'='*50}\nВремя: {time.time()-start:.3f} сек\n{'-'*50}\nОТЧЁТ ПО ИСПРАВЛЕНИЯМ:{COLORS['RESET']}")
+    print(f"\n{COLORS['CYAN']}{'='*50}\nTime: {time.time()-start:.3f} sec\n{'-'*50}\nSUMMARY OF FIXES:{COLORS['RESET']}")
     if not all_logs:
-        print(f" {COLORS['GREEN']}✔ Отладочный мусор отсутствует{COLORS['RESET']}")
+        print(f" {COLORS['GREEN']}✔ No debug leftovers found{COLORS['RESET']}")
     for k, v in stats.items():
         if v:
             print(f" {COLORS['GREEN']}✔ {k}: {v}{COLORS['RESET']}")
-    print(f"{COLORS['CYAN']}{'='*50}{COLORS['RESET']}\nОпасные уязвимости: " +
-          (f"{COLORS['GREEN']}НЕ НАЙДЕНЫ{COLORS['RESET']}" if total==0 else f"{COLORS['RED']}{total}{COLORS['RESET']}"))
+    print(f"{COLORS['CYAN']}{'='*50}{COLORS['RESET']}\nVulnerabilities found: " +
+          (f"{COLORS['GREEN']}NONE{COLORS['RESET']}" if total_vuln==0 else f"{COLORS['RED']}{total_vuln}{COLORS['RESET']}"))
     print(f"{COLORS['CYAN']}{'='*50}{COLORS['RESET']}\n")
     if os.environ.get("CI") != "true":
-        input("Нажмите Enter...")
+        input("Press Enter to exit...")
 
 if __name__ == "__main__":
     main()
