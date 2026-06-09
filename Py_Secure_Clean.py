@@ -3,7 +3,6 @@ import os
 import sys
 import time
 import re
-from enum import Enum, auto
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
@@ -23,12 +22,6 @@ EXCLUDE_DIRS = {'.git', '__pycache__', 'venv', 'env', '.venv', 'node_modules'}
 SQL_PATTERN = re.compile(r'\b(select|insert|update|delete|create|drop|alter|replace|merge|truncate)\b', re.IGNORECASE)
 HIGH_ENTROPY_MIN_LEN = 20
 HIGH_ENTROPY_RATIO = 0.45
-
-# Enum for auto-fix actions
-class FixAction(Enum):
-    COMMENT_LINE = auto()
-    DELETE_LINE = auto()
-    REPLACE_EXCEPT = auto()
 
 RULES = {
     ("eval", None): ("VULNERABILITY", "Dangerous eval() call", "Executes arbitrary code", "Use ast.literal_eval()"),
@@ -60,14 +53,13 @@ class CodeAnalyzer(ast.NodeVisitor):
         self.source_lines = source_lines
         self.issues = []
         self.imports = {}
-        self.fixes = {}
 
     # ---- Helper methods ----
     def _get_code(self, node: ast.AST) -> str:
         """Extract source code fragment for a given AST node."""
         try:
             return ast.unparse(node)
-        except:
+        except (AttributeError, TypeError):
             pass
         try:
             if node.lineno and self.source_lines:
@@ -98,15 +90,6 @@ class CodeAnalyzer(ast.NodeVisitor):
         if re.fullmatch(r'[0-9a-fA-F]+', text):
             return len(text) >= 32
         return (len(set(text)) / len(text)) > HIGH_ENTROPY_RATIO
-
-    def _already_fixed(self, lineno: int, typ: str = "comment") -> bool:
-        """Check if a line was already auto-fixed (commented or marked)."""
-        if 0 < lineno <= len(self.source_lines):
-            line = self.source_lines[lineno-1]
-            if typ == "comment":
-                return line.lstrip().startswith("#")
-            return "Auto-fixed" in line
-        return False
 
     def _add_issue(self, level: str, title: str, line: int, code: str, reason: str, fix: str):
         """Store a detected issue."""
@@ -167,7 +150,7 @@ class CodeAnalyzer(ast.NodeVisitor):
                 continue
             var_name = target.id.lower()
             self._check_secret_assignment(node, var_name, value, value_str)
-            self._check_url_assignment(node, var_name, value, value_str)
+            self._check_url_assignment(node, value_str)
             self._check_debug_assignment(node, var_name, value)
 
         self.generic_visit(node)
@@ -189,10 +172,10 @@ class CodeAnalyzer(ast.NodeVisitor):
                 self._add_issue("VULNERABILITY", "Hidden hardcoded key/token", node.lineno,
                                 "[HIGH ENTROPY]", "Looks like API key or hash", "Move to .env")
 
-    def _check_url_assignment(self, node: ast.Assign, var_name: str, value: any, value_str: str):
+    def _check_url_assignment(self, node: ast.Assign, value_str: str):
         """Detect hardcoded URLs and credentials in URLs."""
         url_prefixes = ("http://", "redis://", "amqp://", "mongodb://", "postgres://")
-        if not any(p in value_str for p in url_prefixes) or not isinstance(value, str):
+        if not any(p in value_str for p in url_prefixes):
             return
 
         if "://" in value_str and "@" in value_str and value_str.find("@") > value_str.find("://") and \
@@ -210,16 +193,13 @@ class CodeAnalyzer(ast.NodeVisitor):
                             self._get_code(node), "Debug mode allows arbitrary code execution", "Set DEBUG = False")
 
     def visit_ExceptHandler(self, node: ast.ExceptHandler):
-        """Mark empty except blocks for auto-fix."""
+        """Report empty except blocks."""
         if node.lineno and len(node.body) == 1:
             action = node.body[0]
             if action.lineno and (isinstance(action, ast.Pass) or
                                   (isinstance(action, ast.Expr) and isinstance(action.value, ast.Constant))):
-                if not self._already_fixed(action.lineno, "except"):
-                    self._add_issue("CODE_SMELL", "Empty except block", node.lineno,
-                                    "except: pass", "Errors silently ignored", "Auto-fix added")
-                    self.fixes[action.lineno] = (FixAction.REPLACE_EXCEPT,
-                                                 "pass  # Auto-fixed: suppressed exception placeholder")
+                self._add_issue("CODE_SMELL", "Empty except block", node.lineno,
+                                "except: pass", "Errors silently ignored", "Handle or log the exception properly")
         self.generic_visit(node)
 
     # ---- Name resolution helpers ----
@@ -309,10 +289,8 @@ class CodeAnalyzer(ast.NodeVisitor):
         if key == ("yaml", "load") and self._safe_yaml(node):
             return False
         level, title, reason, fix = RULES[key]
-        if level != "CODE_SMELL" or not self._already_fixed(node.lineno, "comment"):
-            self._add_issue(level, title, node.lineno, self._get_code(node), reason, fix)
-            return True
-        return False
+        self._add_issue(level, title, node.lineno, self._get_code(node), reason, fix)
+        return True
 
     def _check_xml_parser(self, node: ast.Call, module_name: Optional[str]):
         """Unsafe XML parser (XXE)."""
@@ -335,16 +313,14 @@ class CodeAnalyzer(ast.NodeVisitor):
                                 self._get_code(node), "Dynamic path passed to open()", "Use pathlib.Path()")
 
     def _check_debug_calls(self, node: ast.Call, base_name: Optional[str]):
-        """Auto-fix forgotten print() and breakpoint() calls (no chain)."""
-        if base_name and not hasattr(node.func, 'attr'):  # simple name, no attribute
-            if base_name == "print" and not self._already_fixed(node.lineno, "comment"):
+        """Report forgotten print() and breakpoint() calls."""
+        if base_name and not hasattr(node.func, 'attr'):
+            if base_name == "print":
                 self._add_issue("CODE_SMELL", "Forgotten print()", node.lineno, self._get_code(node),
-                                "Clutters output", "Auto-commented")
-                self.fixes[node.lineno] = (FixAction.COMMENT_LINE, "COMMENT_LINE")
-            elif base_name == "breakpoint" and not self._already_fixed(node.lineno, "comment"):
+                                "Clutters output", "Remove or comment before release")
+            elif base_name == "breakpoint":
                 self._add_issue("CODE_SMELL", "Forgotten breakpoint()", node.lineno, self._get_code(node),
-                                "Stops script", "Auto-deleted")
-                self.fixes[node.lineno] = (FixAction.DELETE_LINE, "DELETE_LINE")
+                                "Stops script execution", "Remove before release")
 
     def _check_ssl_host_config(self, node: ast.Call):
         """verify=False or host='0.0.0.0' in kwargs."""
@@ -357,7 +333,7 @@ class CodeAnalyzer(ast.NodeVisitor):
                                 self._get_code(node), "Exposed to entire network", "Use '127.0.0.1'")
 
     def _check_dynamic_command(self, node: ast.Call, module_name: Optional[str], func_name: Optional[str], rule_triggered: bool):
-        """Suspicious dynamic command call (exec, system, etc.) with non-constant argument."""
+        """Suspicious dynamic command call with non-constant argument."""
         if rule_triggered:
             return
         dangerous_funcs = ("run", "exec", "system", "cmd", "shell", "spawn", "popen")
@@ -441,37 +417,6 @@ class CodeAnalyzer(ast.NodeVisitor):
 
 
 # ----------------------------------------------------------------------
-# Auto-fixes application
-# ----------------------------------------------------------------------
-
-def apply_fixes(file_path: Path, fixes: Dict[int, Tuple[FixAction, str]], lines: List[str]) -> List[Tuple[FixAction, str]]:
-    """Apply auto-fixes to the file and return logs."""
-    new_lines = []
-    logs = []
-    for idx, line in enumerate(lines, 1):
-        if idx in fixes:
-            action, _ = fixes[idx]
-            end = "\r\n" if line.endswith("\r\n") else "\n"
-            clean_line = line.rstrip("\r\n")
-            indent = len(clean_line) - len(clean_line.lstrip())
-            if action == FixAction.COMMENT_LINE:
-                new_lines.append(clean_line[:indent] + "# " + clean_line[indent:] + end)
-                logs.append((action, f"Line {idx}: print commented"))
-            elif action == FixAction.DELETE_LINE:
-                logs.append((action, f"Line {idx}: breakpoint removed, pass added below"))
-                # Remove the line, add pass below with same indent
-                new_lines.append(" " * indent + "pass  # Auto-removed breakpoint" + end)
-            elif action == FixAction.REPLACE_EXCEPT:
-                new_lines.append(clean_line[:indent] + "pass  # Auto-fixed: suppressed exception placeholder" + end)
-                logs.append((action, f"Line {idx}: empty except protected"))
-        else:
-            new_lines.append(line)
-    with open(file_path, "w", encoding="utf-8") as f:
-        f.writelines(new_lines)
-    return logs
-
-
-# ----------------------------------------------------------------------
 # Main function
 # ----------------------------------------------------------------------
 
@@ -508,27 +453,8 @@ def main():
             analyzer = CodeAnalyzer(name, lines)
             analyzer.visit(ast.parse(src))
 
-            fix_details = []
-            if analyzer.fixes:
-                applied = apply_fixes(fpath, analyzer.fixes, lines)
-                for action, msg in applied:
-                    fix_details.append(msg)
-
             analyzer._print_issues()
             total_vuln += len([i for i in analyzer.issues if i["level"] == "VULNERABILITY"])
-
-            if fix_details:
-                cnt_print = sum(1 for d in fix_details if 'print commented' in d)
-                cnt_bp = sum(1 for d in fix_details if 'breakpoint' in d)
-                cnt_except = sum(1 for d in fix_details if 'empty except' in d)
-                parts = []
-                if cnt_print: parts.append(f"print:{cnt_print}")
-                if cnt_bp: parts.append(f"breakpoint:{cnt_bp}")
-                if cnt_except: parts.append(f"except:{cnt_except}")
-                print(f"\n{COLORS['GREEN']}[CLEANED] {name}: {len(fix_details)} lines cleaned ({', '.join(parts)}){COLORS['RESET']}")
-                for detail in fix_details:
-                    print(f"  {COLORS['YELLOW']}->{COLORS['RESET']} {detail}")
-                print()
 
         except Exception as e:
             print(f"\n{COLORS['RED']}[ERROR] {fpath.name}: {e}{COLORS['RESET']}")
