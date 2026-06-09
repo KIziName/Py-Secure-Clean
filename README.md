@@ -1,4 +1,4 @@
-Агрессивный статический анализатор AST и инструмент автоматического рефакторинга для Python, работающий без внешних зависимостей. Моментально находит уязвимости, захардкоженные секреты и вычищает отладочный мусор.
+Статический анализатор AST и инструмент автоматического рефакторинга для Python, работающий без внешних зависимостей. Моментально находит уязвимости, захардкоженные секреты и вычищает отладочный мусор.
 
 🛠️ Что умеет
 ----------------------------------
@@ -11,7 +11,7 @@ AST-аудит безопасности: Выцепляет eval, exec, os.syste
 
 Auto-Fix (Клининг): Сам комментирует забытые print(), полностью удаляет breakpoint() и закрывает пустые блоки except: pass безопасными заглушками с сохранением структуры отступов.
 
-An aggressive static AST analyzer and automatic refactoring tool for Python that works without external dependencies. Instantly finds vulnerabilities, hard-coded secrets, and removes debug junk.
+Static AST analyzer and automatic refactoring tool for Python that works without external dependencies. Instantly finds vulnerabilities, hard-coded secrets, and removes debug junk.
 
 🛠️ What it can do
 ---------------------------------------------
